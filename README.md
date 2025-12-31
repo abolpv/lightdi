@@ -19,7 +19,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+">
   <img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge" alt="Build">
+<a href="https://github.com/abolpv/lightdi/actions/workflows/maven.yml"><img src="https://github.com/abolpv/lightdi/actions/workflows/maven.yml/badge.svg" alt="Build"></a>
   <img src="https://jitpack.io/v/abolpv/lightdi.svg?style=for-the-badge" alt="JitPack">
 </p>
 
