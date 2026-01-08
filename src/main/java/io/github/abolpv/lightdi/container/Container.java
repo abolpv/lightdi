@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Method injection with @Inject</li>
  *   <li>Singleton and Prototype scopes</li>
  *   <li>Named qualifiers for multiple implementations</li>
+ *   <li>Primary bean selection with @Primary</li>
  *   <li>Lazy initialization with @Lazy</li>
  *   <li>Circular dependency detection</li>
  *   <li>Package scanning for auto-discovery</li>
@@ -358,7 +359,8 @@ public class Container {
         Scope scope = determineScope(clazz);
         String name = determineName(clazz);
         boolean lazy = clazz.isAnnotationPresent(Lazy.class);
-        return new BeanDefinition(clazz, scope, name, lazy);
+        boolean primary = clazz.isAnnotationPresent(Primary.class);
+        return new BeanDefinition(clazz, scope, name, lazy, primary);
     }
 
     private Scope determineScope(Class<?> clazz) {
@@ -376,10 +378,24 @@ public class Container {
     private void registerForInterfaces(Class<?> clazz, BeanDefinition definition) {
         List<Class<?>> interfaces = ReflectionUtils.getAllInterfaces(clazz);
         for (Class<?> iface : interfaces) {
-            // Don't override existing registrations
-            if (!registry.containsKey(iface)) {
+            BeanDefinition existing = registry.get(iface);
+
+            if (existing == null) {
+                // No existing registration, register this one
+                registry.put(iface, definition);
+            } else if (definition.isPrimary()) {
+                // Check for multiple @Primary conflict
+                if (existing.isPrimary() && !existing.getImplementationClass().equals(clazz)) {
+                    throw new AmbiguousBeanException(
+                        "Multiple @Primary beans found for type " + iface.getSimpleName() +
+                        ": [" + existing.getImplementationClass().getSimpleName() +
+                        ", " + clazz.getSimpleName() + "]"
+                    );
+                }
+                // Primary bean overrides existing registration
                 registry.put(iface, definition);
             }
+            // If existing is primary and new one isn't, don't override
         }
     }
 

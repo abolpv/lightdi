@@ -32,6 +32,12 @@ public class AmbiguousBeanException extends ContainerException {
     private final Class<?> requestedType;
     private final Set<Class<?>> candidates;
 
+    public AmbiguousBeanException(String message) {
+        super(message);
+        this.requestedType = null;
+        this.candidates = null;
+    }
+
     public AmbiguousBeanException(Class<?> type, Set<Class<?>> candidates) {
         super(buildMessage(type, candidates));
         this.requestedType = type;
