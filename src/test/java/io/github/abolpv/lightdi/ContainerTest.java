@@ -683,4 +683,172 @@ class ContainerTest {
             assertEquals(2, senders.size());
         }
     }
+
+    // ==================== Method Injection Test Classes ====================
+
+    @Injectable
+    static class ServiceWithMethodInjection {
+        private SimpleService simpleService;
+        private DatabaseRepository repository;
+
+        @Inject
+        public void setSimpleService(SimpleService simpleService) {
+            this.simpleService = simpleService;
+        }
+
+        @Inject
+        public void setRepository(DatabaseRepository repository) {
+            this.repository = repository;
+        }
+
+        public SimpleService getSimpleService() {
+            return simpleService;
+        }
+
+        public DatabaseRepository getRepository() {
+            return repository;
+        }
+    }
+
+    @Injectable
+    static class ServiceWithNamedMethodInjection {
+        private MessageSender emailSender;
+        private MessageSender smsSender;
+
+        @Inject
+        public void setEmailSender(@Named("email") MessageSender emailSender) {
+            this.emailSender = emailSender;
+        }
+
+        @Inject
+        public void setSmsSender(@Named("sms") MessageSender smsSender) {
+            this.smsSender = smsSender;
+        }
+
+        public MessageSender getEmailSender() {
+            return emailSender;
+        }
+
+        public MessageSender getSmsSender() {
+            return smsSender;
+        }
+    }
+
+    @Injectable
+    static class ServiceWithMultiParamMethodInjection {
+        private SimpleService simpleService;
+        private DatabaseRepository repository;
+
+        @Inject
+        public void setDependencies(SimpleService simpleService, DatabaseRepository repository) {
+            this.simpleService = simpleService;
+            this.repository = repository;
+        }
+
+        public SimpleService getSimpleService() {
+            return simpleService;
+        }
+
+        public DatabaseRepository getRepository() {
+            return repository;
+        }
+    }
+
+    @Injectable
+    static class ServiceWithMixedInjection {
+        private final SimpleService constructorService;
+
+        @Inject
+        private DatabaseRepository fieldRepository;
+
+        private UserService methodService;
+
+        @Inject
+        public ServiceWithMixedInjection(SimpleService simpleService) {
+            this.constructorService = simpleService;
+        }
+
+        @Inject
+        public void setUserService(UserService userService) {
+            this.methodService = userService;
+        }
+
+        public SimpleService getConstructorService() {
+            return constructorService;
+        }
+
+        public DatabaseRepository getFieldRepository() {
+            return fieldRepository;
+        }
+
+        public UserService getMethodService() {
+            return methodService;
+        }
+    }
+
+    // ==================== Method Injection Tests ====================
+
+    @Nested
+    @DisplayName("Method Injection")
+    class MethodInjectionTests {
+
+        @Test
+        @DisplayName("Should inject dependencies via setter methods")
+        void shouldInjectViaSetterMethods() {
+            container.register(SimpleService.class);
+            container.register(DatabaseRepository.class);
+            container.register(ServiceWithMethodInjection.class);
+
+            ServiceWithMethodInjection service = container.get(ServiceWithMethodInjection.class);
+
+            assertNotNull(service.getSimpleService());
+            assertNotNull(service.getRepository());
+            assertEquals("Hello from SimpleService", service.getSimpleService().getMessage());
+            assertEquals("Data from database", service.getRepository().getData());
+        }
+
+        @Test
+        @DisplayName("Should inject named dependencies via method parameters")
+        void shouldInjectNamedDependenciesViaMethods() {
+            container.register(MessageSender.class, EmailSender.class, "email");
+            container.register(MessageSender.class, SmsSender.class, "sms");
+            container.register(ServiceWithNamedMethodInjection.class);
+
+            ServiceWithNamedMethodInjection service = container.get(ServiceWithNamedMethodInjection.class);
+
+            assertNotNull(service.getEmailSender());
+            assertNotNull(service.getSmsSender());
+            assertEquals("email", service.getEmailSender().getType());
+            assertEquals("sms", service.getSmsSender().getType());
+        }
+
+        @Test
+        @DisplayName("Should inject multiple parameters in single method")
+        void shouldInjectMultipleParametersInSingleMethod() {
+            container.register(SimpleService.class);
+            container.register(DatabaseRepository.class);
+            container.register(ServiceWithMultiParamMethodInjection.class);
+
+            ServiceWithMultiParamMethodInjection service = container.get(ServiceWithMultiParamMethodInjection.class);
+
+            assertNotNull(service.getSimpleService());
+            assertNotNull(service.getRepository());
+        }
+
+        @Test
+        @DisplayName("Should support mixed injection (constructor + field + method)")
+        void shouldSupportMixedInjection() {
+            container.register(SimpleService.class);
+            container.register(DatabaseRepository.class);
+            container.register(UserService.class);
+            container.register(ServiceWithMixedInjection.class);
+
+            ServiceWithMixedInjection service = container.get(ServiceWithMixedInjection.class);
+
+            assertNotNull(service.getConstructorService());
+            assertNotNull(service.getFieldRepository());
+            assertNotNull(service.getMethodService());
+            assertEquals("Hello from SimpleService", service.getConstructorService().getMessage());
+        }
+    }
 }

@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *   <li>Constructor injection with @Inject</li>
  *   <li>Field injection with @Inject</li>
+ *   <li>Method injection with @Inject</li>
  *   <li>Singleton and Prototype scopes</li>
  *   <li>Named qualifiers for multiple implementations</li>
  *   <li>Lazy initialization with @Lazy</li>
@@ -412,20 +413,23 @@ public class Container {
 
     private Object createInstance(BeanDefinition definition) {
         Class<?> clazz = definition.getImplementationClass();
-        
+
         // Check for circular dependency
         circularDetector.push(clazz);
-        
+
         try {
             // Create instance via constructor
             Object instance = createViaConstructor(clazz);
-            
+
             // Inject fields
             injectFields(instance, clazz);
-            
+
+            // Inject methods
+            injectMethods(instance, clazz);
+
             // Call @PostConstruct
             invokePostConstruct(instance, clazz);
-            
+
             return instance;
         } finally {
             circularDetector.pop(clazz);
@@ -492,6 +496,26 @@ public class Container {
     @SuppressWarnings("unchecked")
     private <T> T createLazyProxyForField(Class<T> type) {
         return ProxyFactory.createLazyProxy(type, () -> get(type));
+    }
+
+    private void injectMethods(Object instance, Class<?> clazz) {
+        List<Method> methods = ReflectionUtils.findInjectableMethods(clazz);
+
+        for (Method method : methods) {
+            Object[] args = resolveMethodParameters(method);
+            ReflectionUtils.invokeMethodWithArgs(instance, method, args);
+        }
+    }
+
+    private Object[] resolveMethodParameters(Method method) {
+        Parameter[] parameters = method.getParameters();
+        Object[] args = new Object[parameters.length];
+
+        for (int i = 0; i < parameters.length; i++) {
+            args[i] = resolveParameter(parameters[i]);
+        }
+
+        return args;
     }
 
     private void invokePostConstruct(Object instance, Class<?> clazz) {
