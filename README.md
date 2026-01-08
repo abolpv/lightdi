@@ -17,10 +17,14 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+">
-  <img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge" alt="License">
-<a href="https://github.com/abolpv/lightdi/actions/workflows/maven.yml"><img src="https://github.com/abolpv/lightdi/actions/workflows/maven.yml/badge.svg" alt="Build"></a>
-  <img src="https://jitpack.io/v/abolpv/lightdi.svg?style=for-the-badge" alt="JitPack">
+  <a href="https://github.com/abolpv/lightdi/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/Version-1.1.0-green?style=for-the-badge" alt="Version 1.1.0"></a>
+  <a href="https://www.java.com"><img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/abolpv/lightdi/actions/workflows/maven.yml"><img src="https://github.com/abolpv/lightdi/actions/workflows/maven.yml/badge.svg" alt="Build Status"></a>
+  <a href="https://jitpack.io/#abolpv/lightdi"><img src="https://jitpack.io/v/abolpv/lightdi.svg" alt="JitPack"></a>
 </p>
 
 <p align="center">
@@ -28,6 +32,19 @@
   <img src="https://img.shields.io/badge/100%25-Pure%20Java-orange?style=flat-square" alt="Pure Java">
   <img src="https://img.shields.io/badge/Lightweight-%3C50KB-blueviolet?style=flat-square" alt="Lightweight">
 </p>
+
+---
+
+## 🎉 What's New in v1.1.0
+
+> Released January 8, 2026
+
+- **Method Injection** - Inject dependencies via setter methods with `@Inject`
+- **@Primary Beans** - Mark default implementation when multiple candidates exist
+- **@PreDestroy Lifecycle** - Cleanup callbacks on container shutdown
+- **Conditional Registration** - `@ConditionalOnProperty`, `@ConditionalOnBean`, `@ConditionalOnMissingBean`
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ---
 
@@ -820,7 +837,7 @@ mvn install
 This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
 
 ```
-Copyright 2025 Abolfazl Azizi
+Copyright 2025-2026 Abolfazl Azizi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
