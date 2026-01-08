@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/abolpv/lightdi/releases"><img src="https://img.shields.io/badge/Version-1.1.0-green?style=for-the-badge" alt="Version 1.1.0"></a>
+  <a href="https://github.com/abolpv/lightdi/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/Version-1.1.0-green?style=for-the-badge" alt="Version 1.1.0"></a>
   <a href="https://www.java.com"><img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 17+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue?style=for-the-badge" alt="License"></a>
 </p>
@@ -39,8 +39,8 @@
 
 > Released January 8, 2026
 
-- **Method Injection** - Inject via setter methods with `@Inject`
-- **@Primary Beans** - Mark default implementation when multiple exist
+- **Method Injection** - Inject dependencies via setter methods with `@Inject`
+- **@Primary Beans** - Mark default implementation when multiple candidates exist
 - **@PreDestroy Lifecycle** - Cleanup callbacks on container shutdown
 - **Conditional Registration** - `@ConditionalOnProperty`, `@ConditionalOnBean`, `@ConditionalOnMissingBean`
 
