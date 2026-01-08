@@ -90,6 +90,39 @@ public final class ReflectionUtils {
     }
     
     /**
+     * Finds all methods annotated with @Inject.
+     *
+     * @param clazz the class to inspect
+     * @return list of injectable methods
+     */
+    public static List<Method> findInjectableMethods(Class<?> clazz) {
+        List<Method> injectableMethods = new ArrayList<>();
+
+        Class<?> current = clazz;
+        while (current != null && current != Object.class) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(Inject.class)
+                    && !method.isAnnotationPresent(PostConstruct.class)) {
+                    validateInjectMethod(method);
+                    method.setAccessible(true);
+                    injectableMethods.add(method);
+                }
+            }
+            current = current.getSuperclass();
+        }
+
+        return injectableMethods;
+    }
+
+    private static void validateInjectMethod(Method method) {
+        if (method.getParameterCount() == 0) {
+            throw new ContainerException(
+                "@Inject method must have at least one parameter: " + method
+            );
+        }
+    }
+
+    /**
      * Finds the method annotated with @PostConstruct.
      *
      * @param clazz the class to inspect
@@ -237,6 +270,25 @@ public final class ReflectionUtils {
         try {
             method.setAccessible(true);
             method.invoke(target);
+        } catch (Exception e) {
+            throw new ContainerException(
+                "Failed to invoke method " + method.getName() + " on " + target.getClass().getName(), e
+            );
+        }
+    }
+
+    /**
+     * Invokes a method on an object with the given arguments.
+     *
+     * @param target the object to invoke the method on
+     * @param method the method to invoke
+     * @param args the arguments to pass to the method
+     * @throws ContainerException if invocation fails
+     */
+    public static void invokeMethodWithArgs(Object target, Method method, Object[] args) {
+        try {
+            method.setAccessible(true);
+            method.invoke(target, args);
         } catch (Exception e) {
             throw new ContainerException(
                 "Failed to invoke method " + method.getName() + " on " + target.getClass().getName(), e
