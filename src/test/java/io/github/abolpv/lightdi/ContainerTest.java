@@ -7,6 +7,7 @@ import io.github.abolpv.lightdi.container.Scope;
 import io.github.abolpv.lightdi.exception.BeanNotFoundException;
 import io.github.abolpv.lightdi.exception.CircularDependencyException;
 import io.github.abolpv.lightdi.exception.ContainerException;
+import io.github.abolpv.lightdi.exception.AmbiguousBeanException;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
@@ -95,7 +96,7 @@ class ContainerTest {
     static class EmailSender implements MessageSender {
         @Override
         public void send(String message) { }
-        
+
         @Override
         public String getType() {
             return "email";
@@ -107,7 +108,7 @@ class ContainerTest {
     static class SmsSender implements MessageSender {
         @Override
         public void send(String message) { }
-        
+
         @Override
         public String getType() {
             return "sms";
@@ -537,7 +538,7 @@ class ContainerTest {
             container.register(MessageSender.class, EmailSender.class, "email");
             container.register(ServiceWithNamedConstructorInjection.class);
 
-            ServiceWithNamedConstructorInjection service = 
+            ServiceWithNamedConstructorInjection service =
                 container.get(ServiceWithNamedConstructorInjection.class);
 
             assertNotNull(service.getSender());
@@ -657,7 +658,7 @@ class ContainerTest {
         @DisplayName("Should build container with instance")
         void shouldBuildContainerWithInstance() {
             SimpleService instance = new SimpleService();
-            
+
             Container container = Container.builder()
                 .instance(SimpleService.class, instance)
                 .build();
@@ -849,6 +850,144 @@ class ContainerTest {
             assertNotNull(service.getFieldRepository());
             assertNotNull(service.getMethodService());
             assertEquals("Hello from SimpleService", service.getConstructorService().getMessage());
+        }
+    }
+
+    // ==================== Primary Bean Test Classes ====================
+
+    interface NotificationService {
+        String getType();
+    }
+
+    @Injectable
+    @Primary
+    static class PrimaryEmailNotification implements NotificationService {
+        @Override
+        public String getType() {
+            return "email";
+        }
+    }
+
+    @Injectable
+    static class SmsNotification implements NotificationService {
+        @Override
+        public String getType() {
+            return "sms";
+        }
+    }
+
+    @Injectable
+    static class PushNotification implements NotificationService {
+        @Override
+        public String getType() {
+            return "push";
+        }
+    }
+
+    interface PaymentProcessor {
+        String getProvider();
+    }
+
+    @Injectable
+    @Primary
+    static class StripeProcessor implements PaymentProcessor {
+        @Override
+        public String getProvider() {
+            return "stripe";
+        }
+    }
+
+    @Injectable
+    @Primary
+    static class PayPalProcessor implements PaymentProcessor {
+        @Override
+        public String getProvider() {
+            return "paypal";
+        }
+    }
+
+    @Injectable
+    static class ServiceWithPrimaryDependency {
+        private final NotificationService notificationService;
+
+        @Inject
+        public ServiceWithPrimaryDependency(NotificationService notificationService) {
+            this.notificationService = notificationService;
+        }
+
+        public NotificationService getNotificationService() {
+            return notificationService;
+        }
+    }
+
+    // ==================== Primary Bean Tests ====================
+
+    @Nested
+    @DisplayName("Primary Bean Selection")
+    class PrimaryBeanTests {
+
+        @Test
+        @DisplayName("Should select @Primary bean when multiple implementations exist")
+        void shouldSelectPrimaryBean() {
+            container.register(PrimaryEmailNotification.class);
+            container.register(SmsNotification.class);
+            container.register(PushNotification.class);
+
+            NotificationService service = container.get(NotificationService.class);
+
+            assertNotNull(service);
+            assertTrue(service instanceof PrimaryEmailNotification);
+            assertEquals("email", service.getType());
+        }
+
+        @Test
+        @DisplayName("Should inject @Primary bean as dependency")
+        void shouldInjectPrimaryBeanAsDependency() {
+            container.register(PrimaryEmailNotification.class);
+            container.register(SmsNotification.class);
+            container.register(ServiceWithPrimaryDependency.class);
+
+            ServiceWithPrimaryDependency service = container.get(ServiceWithPrimaryDependency.class);
+
+            assertNotNull(service.getNotificationService());
+            assertTrue(service.getNotificationService() instanceof PrimaryEmailNotification);
+        }
+
+        @Test
+        @DisplayName("Should throw exception when multiple @Primary beans exist")
+        void shouldThrowExceptionForMultiplePrimaryBeans() {
+            container.register(StripeProcessor.class);
+
+            assertThrows(AmbiguousBeanException.class, () -> {
+                container.register(PayPalProcessor.class);
+            });
+        }
+
+        @Test
+        @DisplayName("@Primary bean should override non-primary registration")
+        void primaryShouldOverrideNonPrimary() {
+            // Register non-primary first
+            container.register(SmsNotification.class);
+            // Then register primary
+            container.register(PrimaryEmailNotification.class);
+
+            NotificationService service = container.get(NotificationService.class);
+
+            assertTrue(service instanceof PrimaryEmailNotification);
+        }
+
+        @Test
+        @DisplayName("Non-primary should not override @Primary registration")
+        void nonPrimaryShouldNotOverridePrimary() {
+            // Register primary first
+            container.register(PrimaryEmailNotification.class);
+            // Then register non-primary
+            container.register(SmsNotification.class);
+            container.register(PushNotification.class);
+
+            NotificationService service = container.get(NotificationService.class);
+
+            assertTrue(service instanceof PrimaryEmailNotification);
         }
     }
 }
