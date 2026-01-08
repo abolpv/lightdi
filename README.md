@@ -48,13 +48,17 @@ LightDI was created to provide a **simple**, **lightweight**, and **educational*
 |---------|-------------|
 | 🔧 **Constructor Injection** | Automatic dependency resolution via constructors |
 | 📍 **Field Injection** | Inject dependencies directly into fields with `@Inject` |
+| 💉 **Method Injection** | Inject dependencies via setter methods with `@Inject` |
 | 🔄 **Singleton Scope** | Share single instance across all injection points |
 | 🆕 **Prototype Scope** | Create new instance for each injection |
 | 🏷️ **Named Qualifiers** | Support multiple implementations of same interface |
+| ⭐ **Primary Beans** | Mark default bean with `@Primary` for ambiguous types |
 | 😴 **Lazy Loading** | Delay bean creation until first use |
 | 🔍 **Circular Detection** | Fail-fast with clear error messages |
 | 📦 **Package Scanning** | Auto-discover injectable classes |
 | 🚀 **PostConstruct** | Lifecycle callbacks after injection |
+| 🛑 **PreDestroy** | Cleanup callbacks on container shutdown |
+| ⚡ **Conditional Registration** | Register beans based on properties or other beans |
 | 🛠️ **Fluent Builder** | Clean, readable container configuration |
 
 ---
@@ -77,7 +81,7 @@ Add JitPack repository and dependency to your `pom.xml`:
     <dependency>
         <groupId>com.github.abolpv</groupId>
         <artifactId>lightdi</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </dependency>
 </dependencies>
 ```
@@ -92,7 +96,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.abolpv:lightdi:1.0.0'
+    implementation 'com.github.abolpv:lightdi:1.1.0'
 }
 ```
 
@@ -104,7 +108,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.abolpv:lightdi:1.0.0")
+    implementation("com.github.abolpv:lightdi:1.1.0")
 }
 ```
 
@@ -192,11 +196,16 @@ UserService service = container.get(UserService.class);
 | Annotation | Target | Description |
 |------------|--------|-------------|
 | `@Injectable` | Class | Marks class as managed by the container |
-| `@Inject` | Constructor, Field | Marks injection point for dependencies |
+| `@Inject` | Constructor, Field, Method | Marks injection point for dependencies |
 | `@Singleton` | Class | Creates single shared instance |
+| `@Primary` | Class | Marks bean as preferred when multiple candidates exist |
 | `@Lazy` | Class, Field | Delays instantiation until first use |
 | `@Named` | Class, Field, Parameter | Qualifies beans for disambiguation |
 | `@PostConstruct` | Method | Invoked after all dependencies injected |
+| `@PreDestroy` | Method | Invoked when container shuts down |
+| `@ConditionalOnProperty` | Class | Register only when property matches |
+| `@ConditionalOnBean` | Class | Register only when specified beans exist |
+| `@ConditionalOnMissingBean` | Class | Register only when specified beans are absent |
 | `@ComponentScan` | Class | Specifies packages to scan |
 
 ---
@@ -402,6 +411,184 @@ public class OrderService {
 
 ---
 
+### Method Injection
+
+Inject dependencies via setter methods:
+
+```java
+@Injectable
+public class NotificationService {
+    private EmailSender emailSender;
+    private SmsSender smsSender;
+
+    @Inject
+    public void setEmailSender(EmailSender emailSender) {
+        this.emailSender = emailSender;
+    }
+
+    @Inject
+    public void setSmsSender(SmsSender smsSender) {
+        this.smsSender = smsSender;
+    }
+
+    // Or inject multiple dependencies in one method
+    @Inject
+    public void setDependencies(LogService log, MetricsService metrics) {
+        this.log = log;
+        this.metrics = metrics;
+    }
+}
+```
+
+Method injection works with `@Named` qualifiers on parameters:
+
+```java
+@Injectable
+public class AlertService {
+    private MessageSender sender;
+
+    @Inject
+    public void setSender(@Named("email") MessageSender sender) {
+        this.sender = sender;
+    }
+}
+```
+
+---
+
+### Primary Beans
+
+When multiple implementations of an interface exist, use `@Primary` to designate the default:
+
+```java
+interface CacheService {
+    void put(String key, Object value);
+}
+
+@Injectable
+@Primary  // This will be injected by default
+public class RedisCacheService implements CacheService {
+    @Override
+    public void put(String key, Object value) {
+        // Redis implementation
+    }
+}
+
+@Injectable
+public class InMemoryCacheService implements CacheService {
+    @Override
+    public void put(String key, Object value) {
+        // In-memory implementation
+    }
+}
+
+@Injectable
+public class DataService {
+    @Inject
+    private CacheService cache;  // RedisCacheService will be injected
+}
+```
+
+> ⚠️ **Note:** If multiple `@Primary` beans exist for the same type, an `AmbiguousBeanException` is thrown.
+
+---
+
+### PreDestroy Lifecycle
+
+Execute cleanup logic when the container shuts down:
+
+```java
+@Injectable
+@Singleton
+public class DatabaseConnection {
+    private Connection connection;
+
+    @PostConstruct
+    public void connect() {
+        connection = DriverManager.getConnection(url);
+    }
+
+    @PreDestroy
+    public void disconnect() {
+        // Called when container.shutdown() is invoked
+        if (connection != null) {
+            connection.close();
+        }
+    }
+}
+
+// Application code
+Container container = Container.builder()
+    .register(DatabaseConnection.class)
+    .build();
+
+// ... use container ...
+
+// On shutdown - invokes @PreDestroy in reverse creation order
+container.shutdown();
+```
+
+> 💡 **Note:** `@PreDestroy` methods are called in **reverse order** of bean creation (LIFO), ensuring dependencies are cleaned up properly.
+
+---
+
+### Conditional Registration
+
+Register beans conditionally based on properties or other beans:
+
+#### @ConditionalOnProperty
+
+```java
+// Register only when cache.enabled=true
+@Injectable
+@ConditionalOnProperty("cache.enabled")
+public class RedisCacheService implements CacheService { }
+
+// Match specific value
+@Injectable
+@ConditionalOnProperty(value = "cache.type", havingValue = "memcached")
+public class MemcachedCacheService implements CacheService { }
+
+// Register when property is missing (fallback)
+@Injectable
+@ConditionalOnProperty(value = "feature.new", matchIfMissing = true)
+public class DefaultFeatureService implements FeatureService { }
+```
+
+#### @ConditionalOnBean
+
+```java
+// Register only when UserRepository exists
+@Injectable
+@ConditionalOnBean(UserRepository.class)
+public class UserService {
+    @Inject
+    private UserRepository repository;
+}
+```
+
+#### @ConditionalOnMissingBean
+
+```java
+// Register only when no CacheService exists (fallback pattern)
+@Injectable
+@ConditionalOnMissingBean(CacheService.class)
+public class InMemoryCacheService implements CacheService { }
+```
+
+#### Using with ContainerBuilder
+
+```java
+Container container = Container.builder()
+    .property("cache.enabled", "true")
+    .property("db.type", "postgresql")
+    .register(RedisCacheService.class)      // Registered (cache.enabled=true)
+    .register(InMemoryCacheService.class)   // Skipped (CacheService exists)
+    .build();
+```
+
+---
+
 ### Container API Reference
 
 ```java
@@ -454,7 +641,26 @@ int count = container.size();
 Set<Class<?>> types = container.getRegisteredTypes();
 
 
+// =============== Properties ===============
+
+// Set a property (for conditional registration)
+container.setProperty("cache.enabled", "true");
+
+// Get a property
+String value = container.getProperty("cache.enabled");
+String withDefault = container.getProperty("cache.type", "inmemory");
+
+// Check if property exists
+boolean hasProperty = container.hasProperty("cache.enabled");
+
+
 // =============== Lifecycle ===============
+
+// Shutdown container (invokes @PreDestroy)
+container.shutdown();
+
+// Check if shutdown was called
+boolean isShutdown = container.isShutdown();
 
 // Clear singleton cache (definitions remain)
 container.clearSingletons();
@@ -472,22 +678,26 @@ Container container = Container.builder()
     // Scan packages
     .scan("com.example.services")
     .scan("com.example.repositories", "com.example.controllers")
-    
+
+    // Set properties (for conditional registration)
+    .property("cache.enabled", "true")
+    .property("db.type", "postgresql")
+
     // Register individual classes
     .register(AppConfig.class)
     .register(SecurityService.class)
-    
+
     // Bind interfaces to implementations
     .bind(UserRepository.class, JpaUserRepository.class)
     .bind(CacheService.class, RedisCacheService.class)
-    
+
     // Named bindings
     .bind(MessageSender.class, EmailSender.class).named("email")
     .bind(MessageSender.class, SmsSender.class).named("sms")
-    
+
     // Pre-created instances
     .instance(Configuration.class, loadConfig())
-    
+
     // Build the container
     .build();
 ```
