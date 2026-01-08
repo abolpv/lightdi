@@ -24,13 +24,14 @@ import java.util.Map;
  * @since 1.0.0
  */
 public class ContainerBuilder {
-    
+
     private final List<String> packagesToScan = new ArrayList<>();
     private final List<Class<?>> classesToRegister = new ArrayList<>();
     private final Map<Class<?>, Class<?>> bindings = new HashMap<>();
     private final List<NamedBinding> namedBindings = new ArrayList<>();
     private final Map<Class<?>, Object> instances = new HashMap<>();
-    
+    private final Map<String, String> properties = new HashMap<>();
+
     private BindingBuilder<?> pendingBinding;
     
     /**
@@ -114,7 +115,32 @@ public class ContainerBuilder {
         instances.put(clazz, instance);
         return this;
     }
-    
+
+    /**
+     * Sets a configuration property for conditional bean registration.
+     *
+     * @param key the property key
+     * @param value the property value
+     * @return this builder
+     */
+    public ContainerBuilder property(String key, String value) {
+        completePendingBinding();
+        properties.put(key, value);
+        return this;
+    }
+
+    /**
+     * Sets multiple configuration properties.
+     *
+     * @param props the properties to set
+     * @return this builder
+     */
+    public ContainerBuilder properties(Map<String, String> props) {
+        completePendingBinding();
+        properties.putAll(props);
+        return this;
+    }
+
     /**
      * Builds and returns the configured container.
      *
@@ -123,34 +149,37 @@ public class ContainerBuilder {
     @SuppressWarnings("unchecked")
     public Container build() {
         completePendingBinding();
-        
+
         Container container = new Container();
-        
-        // Scan packages first
+
+        // Set properties first (required for conditional registration)
+        container.setProperties(properties);
+
+        // Scan packages
         for (String pkg : packagesToScan) {
             container.scan(pkg);
         }
-        
+
         // Register individual classes
         for (Class<?> clazz : classesToRegister) {
             container.register(clazz);
         }
-        
+
         // Register bindings
         for (Map.Entry<Class<?>, Class<?>> entry : bindings.entrySet()) {
             registerBinding(container, entry.getKey(), entry.getValue());
         }
-        
+
         // Register named bindings
         for (NamedBinding binding : namedBindings) {
             registerNamedBinding(container, binding.interfaceClass, binding.implementationClass, binding.name);
         }
-        
+
         // Register instances
         for (Map.Entry<Class<?>, Object> entry : instances.entrySet()) {
             registerInstance(container, entry.getKey(), entry.getValue());
         }
-        
+
         return container;
     }
     

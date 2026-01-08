@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Package scanning for auto-discovery</li>
  *   <li>PostConstruct and PreDestroy lifecycle callbacks</li>
  *   <li>Graceful shutdown with cleanup</li>
+ *   <li>Conditional registration (@ConditionalOnProperty, @ConditionalOnBean, @ConditionalOnMissingBean)</li>
  * </ul>
  *
  * <h2>Example usage:</h2>
@@ -56,6 +57,7 @@ public class Container {
     private final Map<Class<?>, Object> singletonCache = new ConcurrentHashMap<>();
     private final Map<String, Object> namedSingletonCache = new ConcurrentHashMap<>();
     private final List<Object> singletonInstances = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, String> properties = new ConcurrentHashMap<>();
     private final CircularDependencyDetector circularDetector = new CircularDependencyDetector();
     private final ClassScanner classScanner = new ClassScanner();
     private volatile boolean shutdownInProgress = false;
@@ -80,6 +82,8 @@ public class Container {
     /**
      * Registers a class in the container.
      * The class must be annotated with @Injectable.
+     * Conditional annotations (@ConditionalOnProperty, @ConditionalOnBean, @ConditionalOnMissingBean)
+     * are evaluated and the bean is only registered if all conditions are met.
      *
      * @param clazz the class to register
      * @param <T> the type of the class
@@ -88,18 +92,24 @@ public class Container {
      */
     public <T> Container register(Class<T> clazz) {
         validateInjectable(clazz);
+
+        // Check conditional annotations
+        if (!shouldRegister(clazz)) {
+            return this;
+        }
+
         BeanDefinition definition = createBeanDefinition(clazz);
-        
+
         registry.put(clazz, definition);
-        
+
         // Also register by name if @Named is present
         if (definition.hasName()) {
             namedRegistry.put(buildNamedKey(clazz, definition.getName()), definition);
         }
-        
+
         // Register for all implemented interfaces
         registerForInterfaces(clazz, definition);
-        
+
         return this;
     }
 
@@ -186,6 +196,63 @@ public class Container {
             scan(packageName);
         }
         return this;
+    }
+
+    // ==================== Property Methods ====================
+
+    /**
+     * Sets a configuration property.
+     * Properties are used for conditional bean registration with @ConditionalOnProperty.
+     *
+     * @param key the property key
+     * @param value the property value
+     * @return this container for method chaining
+     */
+    public Container setProperty(String key, String value) {
+        properties.put(key, value);
+        return this;
+    }
+
+    /**
+     * Sets multiple configuration properties.
+     *
+     * @param props the properties to set
+     * @return this container for method chaining
+     */
+    public Container setProperties(Map<String, String> props) {
+        properties.putAll(props);
+        return this;
+    }
+
+    /**
+     * Gets a configuration property.
+     *
+     * @param key the property key
+     * @return the property value, or null if not set
+     */
+    public String getProperty(String key) {
+        return properties.get(key);
+    }
+
+    /**
+     * Gets a configuration property with a default value.
+     *
+     * @param key the property key
+     * @param defaultValue the default value if property is not set
+     * @return the property value, or defaultValue if not set
+     */
+    public String getProperty(String key, String defaultValue) {
+        return properties.getOrDefault(key, defaultValue);
+    }
+
+    /**
+     * Checks if a property is set.
+     *
+     * @param key the property key
+     * @return true if the property is set
+     */
+    public boolean hasProperty(String key) {
+        return properties.containsKey(key);
     }
 
     // ==================== Retrieval Methods ====================
@@ -443,6 +510,86 @@ public class Container {
     private String determineName(Class<?> clazz) {
         Named named = clazz.getAnnotation(Named.class);
         return named != null ? named.value() : null;
+    }
+
+    // ==================== Conditional Registration ====================
+
+    /**
+     * Checks if a class should be registered based on conditional annotations.
+     */
+    private boolean shouldRegister(Class<?> clazz) {
+        return checkConditionalOnProperty(clazz)
+            && checkConditionalOnBean(clazz)
+            && checkConditionalOnMissingBean(clazz);
+    }
+
+    /**
+     * Checks @ConditionalOnProperty condition.
+     */
+    private boolean checkConditionalOnProperty(Class<?> clazz) {
+        ConditionalOnProperty condition = clazz.getAnnotation(ConditionalOnProperty.class);
+        if (condition == null) {
+            return true;
+        }
+
+        String propertyName = condition.value().isEmpty() ? condition.name() : condition.value();
+        if (propertyName.isEmpty()) {
+            throw new ContainerException(
+                "@ConditionalOnProperty requires a property name on " + clazz.getName()
+            );
+        }
+
+        String propertyValue = properties.get(propertyName);
+        String expectedValue = condition.havingValue();
+
+        // Property is missing
+        if (propertyValue == null) {
+            return condition.matchIfMissing();
+        }
+
+        // If havingValue is specified, check exact match
+        if (!expectedValue.isEmpty()) {
+            return expectedValue.equals(propertyValue);
+        }
+
+        // If no havingValue, property must exist and not be "false"
+        return !"false".equalsIgnoreCase(propertyValue);
+    }
+
+    /**
+     * Checks @ConditionalOnBean condition.
+     */
+    private boolean checkConditionalOnBean(Class<?> clazz) {
+        ConditionalOnBean condition = clazz.getAnnotation(ConditionalOnBean.class);
+        if (condition == null) {
+            return true;
+        }
+
+        // All specified beans must be present
+        for (Class<?> requiredBean : condition.value()) {
+            if (!registry.containsKey(requiredBean)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks @ConditionalOnMissingBean condition.
+     */
+    private boolean checkConditionalOnMissingBean(Class<?> clazz) {
+        ConditionalOnMissingBean condition = clazz.getAnnotation(ConditionalOnMissingBean.class);
+        if (condition == null) {
+            return true;
+        }
+
+        // All specified beans must be absent
+        for (Class<?> beanType : condition.value()) {
+            if (registry.containsKey(beanType)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void registerForInterfaces(Class<?> clazz, BeanDefinition definition) {

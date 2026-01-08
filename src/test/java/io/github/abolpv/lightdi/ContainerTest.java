@@ -967,9 +967,7 @@ class ContainerTest {
         @Test
         @DisplayName("@Primary bean should override non-primary registration")
         void primaryShouldOverrideNonPrimary() {
-            // Register non-primary first
             container.register(SmsNotification.class);
-            // Then register primary
             container.register(PrimaryEmailNotification.class);
 
             NotificationService service = container.get(NotificationService.class);
@@ -980,9 +978,7 @@ class ContainerTest {
         @Test
         @DisplayName("Non-primary should not override @Primary registration")
         void nonPrimaryShouldNotOverridePrimary() {
-            // Register primary first
             container.register(PrimaryEmailNotification.class);
-            // Then register non-primary
             container.register(SmsNotification.class);
             container.register(PushNotification.class);
 
@@ -1027,7 +1023,7 @@ class ContainerTest {
 
     @Injectable
     @Singleton
-    static class CacheService {
+    static class LifecycleCacheService {
         private static List<String> events = new ArrayList<>();
 
         @PostConstruct
@@ -1106,7 +1102,7 @@ class ContainerTest {
         @BeforeEach
         void resetTestClasses() {
             ResourceService.resetEvents();
-            CacheService.resetEvents();
+            LifecycleCacheService.resetEvents();
             DependentService.resetEvents();
             ServiceWithoutPreDestroy.resetCounter();
         }
@@ -1132,15 +1128,12 @@ class ContainerTest {
             container.register(ResourceService.class);
             container.register(DependentService.class);
 
-            // Get DependentService first, which will trigger ResourceService creation
             DependentService dependent = container.get(DependentService.class);
 
             assertNotNull(dependent.getResourceService());
 
             container.shutdown();
 
-            // DependentService was created after ResourceService,
-            // so its @PreDestroy should be called first
             List<String> events = DependentService.getEvents();
             List<String> resourceEvents = ResourceService.getEvents();
 
@@ -1154,7 +1147,6 @@ class ContainerTest {
             container.register(ServiceWithoutPreDestroy.class);
             container.get(ServiceWithoutPreDestroy.class);
 
-            // Should not throw
             assertDoesNotThrow(() -> container.shutdown());
         }
 
@@ -1194,7 +1186,6 @@ class ContainerTest {
             container.shutdown();
             int eventCountAfterFirstShutdown = ResourceService.getEvents().size();
 
-            // Second shutdown should do nothing
             container.shutdown();
             int eventCountAfterSecondShutdown = ResourceService.getEvents().size();
 
@@ -1205,15 +1196,227 @@ class ContainerTest {
         @DisplayName("Should call @PreDestroy for multiple singletons")
         void shouldCallPreDestroyForMultipleSingletons() {
             container.register(ResourceService.class);
-            container.register(CacheService.class);
+            container.register(LifecycleCacheService.class);
 
             container.get(ResourceService.class);
-            container.get(CacheService.class);
+            container.get(LifecycleCacheService.class);
 
             container.shutdown();
 
             assertTrue(ResourceService.getEvents().contains("ResourceService:disconnect"));
-            assertTrue(CacheService.getEvents().contains("CacheService:flush"));
+            assertTrue(LifecycleCacheService.getEvents().contains("CacheService:flush"));
+        }
+    }
+
+    // ==================== Conditional Registration Test Classes ====================
+
+    interface CacheServiceInterface {
+        String getType();
+    }
+
+    @Injectable
+    @ConditionalOnProperty("cache.enabled")
+    static class RedisCacheService implements CacheServiceInterface {
+        @Override
+        public String getType() {
+            return "redis";
+        }
+    }
+
+    @Injectable
+    @ConditionalOnMissingBean(CacheServiceInterface.class)
+    static class InMemoryCacheService implements CacheServiceInterface {
+        @Override
+        public String getType() {
+            return "inmemory";
+        }
+    }
+
+    @Injectable
+    @ConditionalOnProperty(value = "cache.type", havingValue = "memcached")
+    static class MemcachedCacheService implements CacheServiceInterface {
+        @Override
+        public String getType() {
+            return "memcached";
+        }
+    }
+
+    @Injectable
+    @ConditionalOnProperty(value = "feature.optional", matchIfMissing = true)
+    static class DefaultFeatureService {
+        public String getName() {
+            return "default";
+        }
+    }
+
+    @Injectable
+    @ConditionalOnBean(SimpleService.class)
+    static class ServiceDependentOnSimple {
+        public String getName() {
+            return "dependent";
+        }
+    }
+
+    @Injectable
+    @ConditionalOnProperty(value = "db.enabled", havingValue = "true")
+    @Singleton
+    static class ConditionalDatabaseService {
+        public String getConnection() {
+            return "connected";
+        }
+    }
+
+    // ==================== Conditional Registration Tests ====================
+
+    @Nested
+    @DisplayName("Conditional Bean Registration")
+    class ConditionalRegistrationTests {
+
+        @Test
+        @DisplayName("@ConditionalOnProperty - should register when property is set")
+        void shouldRegisterWhenPropertyIsSet() {
+            container.setProperty("cache.enabled", "true");
+            container.register(RedisCacheService.class);
+
+            assertTrue(container.contains(RedisCacheService.class));
+            assertTrue(container.contains(CacheServiceInterface.class));
+            assertEquals("redis", container.get(CacheServiceInterface.class).getType());
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty - should not register when property is missing")
+        void shouldNotRegisterWhenPropertyIsMissing() {
+            container.register(RedisCacheService.class);
+
+            assertFalse(container.contains(RedisCacheService.class));
+            assertFalse(container.contains(CacheServiceInterface.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty - should not register when property is 'false'")
+        void shouldNotRegisterWhenPropertyIsFalse() {
+            container.setProperty("cache.enabled", "false");
+            container.register(RedisCacheService.class);
+
+            assertFalse(container.contains(RedisCacheService.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty with havingValue - should match exact value")
+        void shouldMatchExactPropertyValue() {
+            container.setProperty("cache.type", "memcached");
+            container.register(MemcachedCacheService.class);
+
+            assertTrue(container.contains(MemcachedCacheService.class));
+            assertEquals("memcached", container.get(CacheServiceInterface.class).getType());
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty with havingValue - should not match different value")
+        void shouldNotMatchDifferentPropertyValue() {
+            container.setProperty("cache.type", "redis");
+            container.register(MemcachedCacheService.class);
+
+            assertFalse(container.contains(MemcachedCacheService.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty with matchIfMissing - should register when property missing")
+        void shouldRegisterWithMatchIfMissingWhenPropertyMissing() {
+            container.register(DefaultFeatureService.class);
+
+            assertTrue(container.contains(DefaultFeatureService.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnProperty with matchIfMissing - should not register when property is 'false'")
+        void shouldNotRegisterWithMatchIfMissingWhenPropertyFalse() {
+            container.setProperty("feature.optional", "false");
+            container.register(DefaultFeatureService.class);
+
+            assertFalse(container.contains(DefaultFeatureService.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnMissingBean - should register when no bean exists")
+        void shouldRegisterWhenBeanMissing() {
+            container.register(InMemoryCacheService.class);
+
+            assertTrue(container.contains(InMemoryCacheService.class));
+            assertEquals("inmemory", container.get(CacheServiceInterface.class).getType());
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnMissingBean - should not register when bean exists")
+        void shouldNotRegisterWhenBeanExists() {
+            container.setProperty("cache.enabled", "true");
+            container.register(RedisCacheService.class);
+            container.register(InMemoryCacheService.class);
+
+            assertTrue(container.contains(RedisCacheService.class));
+            assertFalse(container.contains(InMemoryCacheService.class));
+            assertEquals("redis", container.get(CacheServiceInterface.class).getType());
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnBean - should register when required bean exists")
+        void shouldRegisterWhenRequiredBeanExists() {
+            container.register(SimpleService.class);
+            container.register(ServiceDependentOnSimple.class);
+
+            assertTrue(container.contains(ServiceDependentOnSimple.class));
+        }
+
+        @Test
+        @DisplayName("@ConditionalOnBean - should not register when required bean missing")
+        void shouldNotRegisterWhenRequiredBeanMissing() {
+            container.register(ServiceDependentOnSimple.class);
+
+            assertFalse(container.contains(ServiceDependentOnSimple.class));
+        }
+
+        @Test
+        @DisplayName("ContainerBuilder with properties - should support conditional registration")
+        void shouldSupportConditionalRegistrationViaBuilder() {
+            Container c = Container.builder()
+                .property("db.enabled", "true")
+                .register(ConditionalDatabaseService.class)
+                .build();
+
+            assertTrue(c.contains(ConditionalDatabaseService.class));
+            assertEquals("connected", c.get(ConditionalDatabaseService.class).getConnection());
+        }
+
+        @Test
+        @DisplayName("ContainerBuilder without property - should skip conditional bean")
+        void shouldSkipConditionalBeanWithoutProperty() {
+            Container c = Container.builder()
+                .register(ConditionalDatabaseService.class)
+                .build();
+
+            assertFalse(c.contains(ConditionalDatabaseService.class));
+        }
+
+        @Test
+        @DisplayName("Fallback pattern - primary with fallback via @ConditionalOnMissingBean")
+        void shouldSupportFallbackPattern() {
+            Container c1 = Container.builder()
+                .register(RedisCacheService.class)
+                .register(InMemoryCacheService.class)
+                .build();
+
+            assertTrue(c1.contains(InMemoryCacheService.class));
+            assertEquals("inmemory", c1.get(CacheServiceInterface.class).getType());
+
+            Container c2 = Container.builder()
+                .property("cache.enabled", "true")
+                .register(RedisCacheService.class)
+                .register(InMemoryCacheService.class)
+                .build();
+
+            assertTrue(c2.contains(RedisCacheService.class));
+            assertFalse(c2.contains(InMemoryCacheService.class));
+            assertEquals("redis", c2.get(CacheServiceInterface.class).getType());
         }
     }
 }
