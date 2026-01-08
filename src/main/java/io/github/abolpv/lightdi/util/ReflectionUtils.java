@@ -3,6 +3,7 @@ package io.github.abolpv.lightdi.util;
 import io.github.abolpv.lightdi.annotation.Inject;
 import io.github.abolpv.lightdi.annotation.Named;
 import io.github.abolpv.lightdi.annotation.PostConstruct;
+import io.github.abolpv.lightdi.annotation.PreDestroy;
 import io.github.abolpv.lightdi.exception.ContainerException;
 
 import java.lang.annotation.Annotation;
@@ -155,7 +156,41 @@ public final class ReflectionUtils {
             );
         }
     }
-    
+
+    /**
+     * Finds the method annotated with @PreDestroy.
+     *
+     * @param clazz the class to inspect
+     * @return optional containing the pre-destroy method if found
+     */
+    public static Optional<Method> findPreDestroyMethod(Class<?> clazz) {
+        Class<?> current = clazz;
+        while (current != null && current != Object.class) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(PreDestroy.class)) {
+                    validatePreDestroyMethod(method);
+                    method.setAccessible(true);
+                    return Optional.of(method);
+                }
+            }
+            current = current.getSuperclass();
+        }
+        return Optional.empty();
+    }
+
+    private static void validatePreDestroyMethod(Method method) {
+        if (method.getParameterCount() != 0) {
+            throw new ContainerException(
+                "@PreDestroy method must have no parameters: " + method
+            );
+        }
+        if (method.getReturnType() != void.class) {
+            throw new ContainerException(
+                "@PreDestroy method must return void: " + method
+            );
+        }
+    }
+
     /**
      * Gets the @Named qualifier value from an annotation array.
      *
