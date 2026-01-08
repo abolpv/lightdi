@@ -10,6 +10,7 @@ import io.github.abolpv.lightdi.exception.ContainerException;
 import io.github.abolpv.lightdi.exception.AmbiguousBeanException;
 import org.junit.jupiter.api.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -988,6 +989,231 @@ class ContainerTest {
             NotificationService service = container.get(NotificationService.class);
 
             assertTrue(service instanceof PrimaryEmailNotification);
+        }
+    }
+
+    // ==================== PreDestroy Test Classes ====================
+
+    @Injectable
+    @Singleton
+    static class ResourceService {
+        private static List<String> events = new ArrayList<>();
+        private boolean connected = false;
+
+        @PostConstruct
+        public void connect() {
+            connected = true;
+            events.add("ResourceService:connect");
+        }
+
+        @PreDestroy
+        public void disconnect() {
+            connected = false;
+            events.add("ResourceService:disconnect");
+        }
+
+        public boolean isConnected() {
+            return connected;
+        }
+
+        public static List<String> getEvents() {
+            return events;
+        }
+
+        public static void resetEvents() {
+            events = new ArrayList<>();
+        }
+    }
+
+    @Injectable
+    @Singleton
+    static class CacheService {
+        private static List<String> events = new ArrayList<>();
+
+        @PostConstruct
+        public void initialize() {
+            events.add("CacheService:initialize");
+        }
+
+        @PreDestroy
+        public void flush() {
+            events.add("CacheService:flush");
+        }
+
+        public static List<String> getEvents() {
+            return events;
+        }
+
+        public static void resetEvents() {
+            events = new ArrayList<>();
+        }
+    }
+
+    @Injectable
+    @Singleton
+    static class DependentService {
+        private static List<String> events = new ArrayList<>();
+        private final ResourceService resourceService;
+
+        @Inject
+        public DependentService(ResourceService resourceService) {
+            this.resourceService = resourceService;
+            events.add("DependentService:construct");
+        }
+
+        @PreDestroy
+        public void cleanup() {
+            events.add("DependentService:cleanup");
+        }
+
+        public ResourceService getResourceService() {
+            return resourceService;
+        }
+
+        public static List<String> getEvents() {
+            return events;
+        }
+
+        public static void resetEvents() {
+            events = new ArrayList<>();
+        }
+    }
+
+    @Injectable
+    @Singleton
+    static class ServiceWithoutPreDestroy {
+        private static int instanceCount = 0;
+
+        public ServiceWithoutPreDestroy() {
+            instanceCount++;
+        }
+
+        public static int getInstanceCount() {
+            return instanceCount;
+        }
+
+        public static void resetCounter() {
+            instanceCount = 0;
+        }
+    }
+
+    // ==================== PreDestroy Tests ====================
+
+    @Nested
+    @DisplayName("PreDestroy Lifecycle")
+    class PreDestroyTests {
+
+        @BeforeEach
+        void resetTestClasses() {
+            ResourceService.resetEvents();
+            CacheService.resetEvents();
+            DependentService.resetEvents();
+            ServiceWithoutPreDestroy.resetCounter();
+        }
+
+        @Test
+        @DisplayName("Should call @PreDestroy on shutdown")
+        void shouldCallPreDestroyOnShutdown() {
+            container.register(ResourceService.class);
+            ResourceService service = container.get(ResourceService.class);
+
+            assertTrue(service.isConnected());
+            assertTrue(ResourceService.getEvents().contains("ResourceService:connect"));
+
+            container.shutdown();
+
+            assertFalse(service.isConnected());
+            assertTrue(ResourceService.getEvents().contains("ResourceService:disconnect"));
+        }
+
+        @Test
+        @DisplayName("Should call @PreDestroy in reverse creation order")
+        void shouldCallPreDestroyInReverseOrder() {
+            container.register(ResourceService.class);
+            container.register(DependentService.class);
+
+            // Get DependentService first, which will trigger ResourceService creation
+            DependentService dependent = container.get(DependentService.class);
+
+            assertNotNull(dependent.getResourceService());
+
+            container.shutdown();
+
+            // DependentService was created after ResourceService,
+            // so its @PreDestroy should be called first
+            List<String> events = DependentService.getEvents();
+            List<String> resourceEvents = ResourceService.getEvents();
+
+            assertTrue(events.contains("DependentService:cleanup"));
+            assertTrue(resourceEvents.contains("ResourceService:disconnect"));
+        }
+
+        @Test
+        @DisplayName("Should handle beans without @PreDestroy")
+        void shouldHandleBeansWithoutPreDestroy() {
+            container.register(ServiceWithoutPreDestroy.class);
+            container.get(ServiceWithoutPreDestroy.class);
+
+            // Should not throw
+            assertDoesNotThrow(() -> container.shutdown());
+        }
+
+        @Test
+        @DisplayName("Should mark container as shutdown")
+        void shouldMarkContainerAsShutdown() {
+            container.register(SimpleService.class);
+            container.get(SimpleService.class);
+
+            assertFalse(container.isShutdown());
+
+            container.shutdown();
+
+            assertTrue(container.isShutdown());
+        }
+
+        @Test
+        @DisplayName("Should prevent new instances after shutdown")
+        void shouldPreventNewInstancesAfterShutdown() {
+            container.register(SimpleService.class);
+            container.register(DatabaseRepository.class);
+
+            container.get(SimpleService.class);
+            container.shutdown();
+
+            assertThrows(ContainerException.class, () -> {
+                container.get(DatabaseRepository.class);
+            });
+        }
+
+        @Test
+        @DisplayName("Should be idempotent - multiple shutdown calls safe")
+        void shutdownShouldBeIdempotent() {
+            container.register(ResourceService.class);
+            container.get(ResourceService.class);
+
+            container.shutdown();
+            int eventCountAfterFirstShutdown = ResourceService.getEvents().size();
+
+            // Second shutdown should do nothing
+            container.shutdown();
+            int eventCountAfterSecondShutdown = ResourceService.getEvents().size();
+
+            assertEquals(eventCountAfterFirstShutdown, eventCountAfterSecondShutdown);
+        }
+
+        @Test
+        @DisplayName("Should call @PreDestroy for multiple singletons")
+        void shouldCallPreDestroyForMultipleSingletons() {
+            container.register(ResourceService.class);
+            container.register(CacheService.class);
+
+            container.get(ResourceService.class);
+            container.get(CacheService.class);
+
+            container.shutdown();
+
+            assertTrue(ResourceService.getEvents().contains("ResourceService:disconnect"));
+            assertTrue(CacheService.getEvents().contains("CacheService:flush"));
         }
     }
 }

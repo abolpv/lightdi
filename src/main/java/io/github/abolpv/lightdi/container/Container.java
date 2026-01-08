@@ -32,7 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Lazy initialization with @Lazy</li>
  *   <li>Circular dependency detection</li>
  *   <li>Package scanning for auto-discovery</li>
- *   <li>PostConstruct lifecycle callback</li>
+ *   <li>PostConstruct and PreDestroy lifecycle callbacks</li>
+ *   <li>Graceful shutdown with cleanup</li>
  * </ul>
  *
  * <h2>Example usage:</h2>
@@ -54,8 +55,10 @@ public class Container {
     private final Map<String, BeanDefinition> namedRegistry = new ConcurrentHashMap<>();
     private final Map<Class<?>, Object> singletonCache = new ConcurrentHashMap<>();
     private final Map<String, Object> namedSingletonCache = new ConcurrentHashMap<>();
+    private final List<Object> singletonInstances = Collections.synchronizedList(new ArrayList<>());
     private final CircularDependencyDetector circularDetector = new CircularDependencyDetector();
     private final ClassScanner classScanner = new ClassScanner();
+    private volatile boolean shutdownInProgress = false;
 
     /**
      * Creates a new empty container.
@@ -327,18 +330,85 @@ public class Container {
     // ==================== Lifecycle Methods ====================
 
     /**
+     * Shuts down the container gracefully.
+     * Invokes @PreDestroy methods on all singleton instances in reverse creation order,
+     * then clears all caches and registrations.
+     *
+     * <p>This method should be called when the application is shutting down
+     * to allow beans to release resources properly.</p>
+     *
+     * <p>Example:</p>
+     * <pre>
+     * Container container = Container.builder()
+     *     .scan("com.example")
+     *     .build();
+     *
+     * // ... use container ...
+     *
+     * // On application shutdown
+     * container.shutdown();
+     * </pre>
+     *
+     * @throws ContainerException if a @PreDestroy method fails (but continues with remaining beans)
+     */
+    public void shutdown() {
+        if (shutdownInProgress) {
+            return;
+        }
+        shutdownInProgress = true;
+
+        // Invoke @PreDestroy in reverse order of creation
+        List<Object> instances = new ArrayList<>(singletonInstances);
+        Collections.reverse(instances);
+
+        List<Exception> exceptions = new ArrayList<>();
+        for (Object instance : instances) {
+            try {
+                invokePreDestroy(instance);
+            } catch (Exception e) {
+                exceptions.add(e);
+            }
+        }
+
+        // Clear all caches
+        singletonInstances.clear();
+        singletonCache.clear();
+        namedSingletonCache.clear();
+
+        if (!exceptions.isEmpty()) {
+            throw new ContainerException(
+                "Errors occurred during shutdown. " + exceptions.size() + " @PreDestroy method(s) failed.",
+                exceptions.get(0)
+            );
+        }
+    }
+
+    /**
+     * Checks if the container is currently shutting down or has been shut down.
+     *
+     * @return true if shutdown has been initiated
+     */
+    public boolean isShutdown() {
+        return shutdownInProgress;
+    }
+
+    /**
      * Clears all singleton instances from the cache.
      * Bean definitions remain registered.
+     * Note: This does NOT call @PreDestroy methods. Use {@link #shutdown()} for graceful cleanup.
      */
     public void clearSingletons() {
+        singletonInstances.clear();
         singletonCache.clear();
         namedSingletonCache.clear();
     }
 
     /**
      * Clears all registrations and singleton caches.
+     * Note: This does NOT call @PreDestroy methods. Use {@link #shutdown()} for graceful cleanup.
      */
     public void clear() {
+        singletonInstances.clear();
         registry.clear();
         namedRegistry.clear();
         singletonCache.clear();
@@ -404,14 +474,22 @@ public class Container {
     }
 
     private Object getInstance(Class<?> key, BeanDefinition definition) {
-        if (definition.isSingleton()) {
-            return singletonCache.computeIfAbsent(key, k -> createInstance(definition));
+        if (shutdownInProgress) {
+            throw new ContainerException("Container is shutting down, cannot create new instances");
         }
-        
+
+        if (definition.isSingleton()) {
+            return singletonCache.computeIfAbsent(key, k -> {
+                Object instance = createInstance(definition);
+                singletonInstances.add(instance);
+                return instance;
+            });
+        }
+
         if (definition.isLazy() && key.isInterface()) {
             return createLazyProxyForClass(key, definition);
         }
-        
+
         return createInstance(definition);
     }
     
@@ -421,8 +499,16 @@ public class Container {
     }
 
     private Object getNamedInstance(String key, BeanDefinition definition) {
+        if (shutdownInProgress) {
+            throw new ContainerException("Container is shutting down, cannot create new instances");
+        }
+
         if (definition.isSingleton()) {
-            return namedSingletonCache.computeIfAbsent(key, k -> createInstance(definition));
+            return namedSingletonCache.computeIfAbsent(key, k -> {
+                Object instance = createInstance(definition);
+                singletonInstances.add(instance);
+                return instance;
+            });
         }
         return createInstance(definition);
     }
@@ -537,5 +623,10 @@ public class Container {
     private void invokePostConstruct(Object instance, Class<?> clazz) {
         Optional<Method> postConstruct = ReflectionUtils.findPostConstructMethod(clazz);
         postConstruct.ifPresent(method -> ReflectionUtils.invokeMethod(instance, method));
+    }
+
+    private void invokePreDestroy(Object instance) {
+        Optional<Method> preDestroy = ReflectionUtils.findPreDestroyMethod(instance.getClass());
+        preDestroy.ifPresent(method -> ReflectionUtils.invokeMethod(instance, method));
     }
 }
